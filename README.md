@@ -1,67 +1,67 @@
 # 🌡️ ESP32-S3 Environmental Monitoring System (IoT)
 
-مشروع كامل لنظام مراقبة بيئي متكامل قائم على لوحة **ESP32-S3** وحساس **DHT11**. يوفر المشروع حلولاً لمراقبة الحرارة والرطوبة محلياً وعن بُعد عبر منصة السحاب **ThingsBoard** باستخدام بروتوكول **MQTT**، بالإضافة إلى تسجيل البيانات المحلي وتنبيهات الأجهزة.
+A complete IoT environmental monitoring system built around the **ESP32-S3** microcontroller and a **DHT11** sensor. This project provides local monitoring capabilities, cloud telemetry via **ThingsBoard** using the **MQTT** protocol, local data logging, and hardware alerts.
 
 ---
 
-## 🚀 المميزات الرئيسية (Features)
+## 🚀 Key Features
 
-* **مراقبة بيئية حية:** قراءة مستمرة لدرجات الحرارة والرطوبة باستخدام حساس DHT11.
-* **التكامل مع منصة ThingsBoard السحابية:** إرسال البيانات دورياً عبر بروتوكول MQTT وعرضها في لوحة قيادة (Dashboard) تفاعلية.
-* **نظام تنبيه مادي محلي (Hardware Alert):** تفعيل البازر (Buzzer) تلقائياً عند تجاوز درجة الحرارة للحد المسموح (Threshold).
-* **خادم ويب محلي (Local Web Server):** إمكانية الوصول إلى البيانات محلياً عبر وضع Access Point (AP).
-* **تسجيل البيانات (Data Logging):** حفظ القراءات السابقة في ملف `CSV` داخل الذاكرة الداخلية للوحة (SPIFFS).
+* **Real-time Environmental Monitoring:** Continuous reading of temperature and humidity using the DHT11 sensor.
+* **ThingsBoard Cloud Integration:** Periodic telemetry data transmission via MQTT protocol displayed on an interactive Dashboard.
+* **Local Hardware Alert:** Automated buzzer activation when temperature exceeds a specified threshold.
+* **Local Web Server:** Access sensor data locally via Access Point (AP) mode.
+* **Data Logging:** Save historical readings to a `CSV` file inside the board's SPIFFS internal flash memory.
 
 ---
 
-## 🛠️ العتاد المستخدم (Hardware Components)
+## 🛠️ Hardware Components
 
-| المكون | المخرج / البن (Pin) | الوصف |
+| Component | Pin / GPIO | Description |
 | :--- | :--- | :--- |
-| **ESP32-S3** | — | وحدة التحكم الرئيسية برابط Wi-Fi |
-| **DHT11 Sensor** | GPIO 20 | حساس قياس درجة الحرارة والرطوبة |
-| **Buzzer** | GPIO 40 | جرس التنبيه عند ارتفاع الحرارة |
-| **I2C LCD (16x2)** | SDA: GPIO 4 / SCL: GPIO 5 | شاشة عرض محلية (تحت التطوير والتكامل) |
+| **ESP32-S3** | — | Main microcontroller with Wi-Fi capability |
+| **DHT11 Sensor** | GPIO 20 | Temperature and humidity sensor |
+| **Buzzer** | GPIO 40 | Alert buzzer for high-temperature warnings |
+| **I2C LCD (16x2)** | SDA: GPIO 4 / SCL: GPIO 5 | Local display screen (Integration ongoing) |
 
 ---
 
-## 💻 البرمجيات والمكتبات المطلوبة (Software & Libraries)
+## 💻 Software & Libraries
 
-تم تطوير هذا المشروع باستخدام **Arduino IDE** ومحرر **VS Code**. يلزم تثبيت المكتبات التالية:
+Developed using **Arduino IDE** and **VS Code**. Make sure to install the following libraries:
 
-* `WiFi.h` (مدمجة مع حزمة ESP32)
-* `DHT sensor library` (بواسطة Adafruit)
-* `PubSubClient` (بواسطة Nick O'Leary - للاتصال بـ MQTT)
-* `LiquidCrystal_I2C` (للتحكم بشاشة الـ LCD)
-
----
-
-## 📁 هيكل المشروع في المستودع (Repository Structure)
-
-* `code`: كود المرحلة الأولى (اختبار العتاد والخادم المحلي).
-* `code_two`: كود تسجيل البيانات وحفظها بصيغة CSV على الذاكرة الداخلية.
-* `code_three` / `sketch_oct25a.ino`: الكود النهائي المربوط بـ ThingsBoard Cloud عبر MQTT.
-* `download-csv.csv`: نموذج لملف البيانات المسجلة محلياً.
+* `WiFi.h` (Built-in with ESP32 board package)
+* `DHT sensor library` (by Adafruit)
+* `PubSubClient` (by Nick O'Leary - for MQTT communication)
+* `LiquidCrystal_I2C` (for I2C LCD control)
 
 ---
 
-## 🔧 كيفية التشغيل (Setup & Installation)
+## 📁 Repository Structure
 
-1. **إعداد العتاد:** قم بتوصيل الحساس والبازر والشاشة بالبنات (Pins) المحددة في الجدول أعلاه.
-2. **إعداد منصة ThingsBoard:**
-   * قم بإنشاء جهاز جديد على [ThingsBoard Cloud](https://thingsboard.cloud).
-   * انسخ رمز الوصول الخاص بالجهاز (**Device Access Token**).
-3. **تعديل الكود:**
-   * افتح كود المشوع وقم بتعديل بيانات الواي فاي ورمز الـ Token:
+* `code`: Phase 1 code (Hardware testing & local web server).
+* `code_two`: Phase 2 code (CSV data logging on internal storage).
+* `code_three` / `sketch_oct25a.ino`: Final code integrated with ThingsBoard Cloud via MQTT.
+* `download-csv.csv`: Sample of locally logged data.
+
+---
+
+## 🔧 Setup & Installation
+
+1. **Hardware Setup:** Connect the sensor, buzzer, and display to the designated GPIO pins listed in the table above.
+2. **ThingsBoard Setup:**
+   * Create a new device on [ThingsBoard Cloud](https://thingsboard.cloud).
+   * Copy your **Device Access Token**.
+3. **Code Configuration:**
+   * Open the project code and update your Wi-Fi credentials and Device Token:
      ```cpp
      const char* ssid = "YOUR_WIFI_SSID";
      const char* password = "YOUR_WIFI_PASSWORD";
      const char* token = "YOUR_DEVICE_ACCESS_TOKEN";
      ```
-4. **الرفع:** ارفع الكود إلى لوحة ESP32-S3 وافتح الـ Serial Monitor بـ Baud Rate `115200`.
+4. **Upload:** Flash the code to your ESP32-S3 board and open the Serial Monitor at a baud rate of `115200`.
 
 ---
 
-## 👤 المطور (Author)
+## 👤 Author
 
 * **bicho-dr** - [GitHub Profile](https://github.com/bicho-dr)
