@@ -1,0 +1,194 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <SPIFFS.h>
+#include "DHT.h"
+
+// إعدادات الواي فاي (اللوحة ستعمل كنقطة اتصال Access Point ليتصل بها هاتفك مباشرة)
+const char* ssid = "ESP32_S3_Monitor";
+const char* password = "12345678"; // كلمة المرور (يجب ألا تقل عن 8 أرقام)
+
+// تعريف الأطراف
+#define DHTPIN 20        
+#define DHTTYPE DHT11    
+#define BUZZER_PIN 40    
+
+const float TEMP_THRESHOLD = 30.0;
+
+DHT dht(DHTPIN, DHTTYPE);
+WebServer server(80);
+
+// متغيرات لتخزين آخر قراءات
+float currentTemp = 0.0;
+float currentHumidity = 0.0;
+unsigned long previousMillis = 0;
+const long interval = 5000; // قراءة وحفظ كل 5 ثوانٍ
+
+// دالة لتهيئة نظام الملفات للتخزين بصيغة CSV
+void initSPIFFS() {
+  if (!SPIFFS.begin(true)) {
+    Serial.println(F("فشل في تهيئة الـ SPIFFS!"));
+    return;
+  }
+  Serial.println(F("تم تهيئة الـ SPIFFS بنجاح."));
+
+  // إذا لم يكن ملف الـ CSV موجوداً، نقوم بإنشائه مع كتابة العناوين في أول سطر
+  if (!SPIFFS.exists("/sensor_log.csv")) {
+    File file = SPIFFS.open("/sensor_log.csv", FILE_WRITE);
+    if (file) {
+      file.println("Time_ms,Temperature_C,Humidity_Percent");
+      file.close();
+      Serial.println(F("تم إنشاء ملف الـ CSV الجديد."));
+    }
+  }
+}
+
+// دالة لحفظ القراءات في ملف CSV داخل الذاكرة الداخلية
+void appendToCSV(float temp, float hum) {
+  File file = SPIFFS.open("/sensor_log.csv", FILE_APPEND);
+  if (!file) {
+    Serial.println(F("خطأ في فتح ملف الـ CSV للتسجيل!"));
+    return;
+  }
+  file.print(millis());
+  file.print(",");
+  file.print(temp);
+  file.print(",");
+  file.println(hum);
+  file.close();
+  Serial.println(F("تم تسجيل القراءة في ملف الـ CSV."));
+}
+
+// تصميم صفحة الويب التي ستظهر على هاتفك
+const char MAIN_page[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>مراقبة الطقس - ESP32-S3</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #0f172a; color: #f8fafc; text-align: center; margin: 0; padding: 20px; }
+        .card { background: #1e293b; border-radius: 16px; padding: 25px; margin: 15px auto; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); border: 1px solid #334155; }
+        h2 { color: #38bdf8; margin-bottom: 20px; }
+        .value { font-size: 2.8rem; font-weight: bold; margin: 10px 0; color: #4ade80; }
+        .unit { font-size: 1.2rem; color: #94a3b8; }
+        .btn { display: inline-block; background: #0284c7; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; margin-top: 20px; transition: 0.3s; }
+        .btn:hover { background: #0369a1; }
+        .alert { color: #f87171; font-weight: bold; margin-top: 10px; }
+    </style>
+    <script>
+        setInterval(function() {
+            fetch('/data').then(response => response.json()).then(data => {
+                document.getElementById('temp').innerText = data.temperature;
+                document.getElementById('hum').innerText = data.humidity;
+                let alertBox = document.getElementById('alert-box');
+                if(data.temperature >= 30) {
+                    alertBox.innerText = "⚠️ تنبيه: حرارة مرتفعة جداً والبازر يعمل!";
+                } else {
+                    alertBox.innerText = "النظام في الوضع الطبيعي الآمن.";
+                }
+            });
+        }, 3000); // تحديث البيانات كل 3 ثوانٍ تلقائياً
+    </script>
+</head>
+<body>
+    <h1>🌡️ لوحة مراقبة البيئة الذكية</h1>
+    <div class="card">
+        <h2>درجة الحرارة</h2>
+        <div class="value"><span id="temp">--</span> <span class="unit">°C</span></div>
+    </div>
+    <div class="card">
+        <h2>الرطوبة النسبية</h2>
+        <div class="value"><span id="hum">--</span> <span class="unit">%</span></div>
+    </div>
+    <div class="card">
+        <h3>حالة التنبيه</h3>
+        <p id="alert-box" class="alert">جاري التحميل...</p>
+    </div>
+    <a href="/download-csv" class="btn">📥 تحميل ملف السجلات (CSV)</a>
+</body>
+</html>
+)rawliteral";
+
+void handleRoot() {
+  server.send(200, "text/html", MAIN_page);
+}
+
+// إرسال البيانات الحية بصيغة JSON لتقوم الصفحة بتحديث نفسها بدون إعادة تحميل
+void handleData() {
+  String json = "{";
+  json += "\"temperature\":" + String(currentTemp, 1) + ",";
+  json += "\"humidity\":" + String(currentHumidity, 1);
+  json += "}";
+  server.send(200, "application/json", json);
+}
+
+// دالة تحميل ملف الـ CSV إلى الهاتف
+void handleDownloadCSV() {
+  File file = SPIFFS.open("/sensor_log.csv", FILE_READ);
+  if (!file) {
+    server.send(404, "text/plain", "الملف غير موجود!");
+    return;
+  }
+  server.streamFile(file, "text/csv");
+  file.close();
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+
+  dht.begin();
+  initSPIFFS();
+
+  // إعداد اللوحة لتكون شبكة واي فاي مستقلة (Access Point)
+  Serial.println(F("جاري إنشاء شبكة الواي فاي..."));
+  WiFi.softAP(ssid, password);
+  
+  IPAddress myIP = WiFi.softAPIP();
+  Serial.print(F("عنوان الواي فاي (IP Address): "));
+  Serial.println(myIP); // غالباً سيكون 192.168.4.1
+
+  // مسارات سيرفر الويب
+  server.on("/", handleRoot);
+  server.on("/data", handleData);
+  server.on("/download-csv", handleDownloadCSV);
+  
+  server.begin();
+  Serial.println(F("سيرفر الويب يعمل الآن بنجاح!"));
+}
+
+void loop() {
+  server.handleClient(); // معالجة طلبات الهاتف المتصل بالسيرفر
+
+  unsigned long currentMillis = millis();
+  // قراءة الحساس وتخزين البيانات كل 5 ثوانٍ
+  if (currentMillis - previousMillis >= interval) {
+    previousMillis = currentMillis;
+
+    float h = dht.readHumidity();
+    float t = dht.readTemperature();
+
+    if (!isnan(h) && !isnan(t)) {
+      currentHumidity = h;
+      currentTemp = t;
+
+      // طباعة القراءات للتأكد في شاشة المراقبة
+      Serial.print(F("حرارة: ")); Serial.print(t);
+      Serial.print(F(" °C | رطوبة: ")); Serial.print(h); Serial.println(F("%"));
+
+      // تخزين البيانات في ملف الـ CSV
+      appendToCSV(t, h);
+
+      // شرط التنبيه (البازر)
+      if (t >= TEMP_THRESHOLD) {
+        digitalWrite(BUZZER_PIN, HIGH);
+      } else {
+        digitalWrite(BUZZER_PIN, LOW);
+      }
+    } else {
+      Serial.println(F("فشل قراءة الحساس!"));
+    }
+  }
+}

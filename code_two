@@ -1,0 +1,163 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <SPIFFS.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include "DHT.h"
+
+// إعدادات شاشة LCD (العنوان 0x27 أو 0x3F، وشاشة 16 عمود و 2 صف)
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// إعدادات الواي فاي (اللوحة نقطة اتصال لهاتفك)
+const char* ssid = "ESP32_S3_Monitor";
+const char* password = "12345678";
+
+// تحديد الأطراف
+#define DHTPIN 20        // حساس الحرارة
+#define DHTTYPE DHT11    
+#define BUZZER_PIN 40    // البازر
+
+// أطراف الـ I2C لشاشة LCD (SDA على 8، SCL على 9)
+#define I2C_SDA 4
+#define I2C_SCL 9
+
+const float TEMP_THRESHOLD = 30.0;
+
+DHT dht(DHTPIN, DHTTYPE);
+WebServer server(80);
+
+float currentTemp = 0.0;
+float currentHumidity = 0.0;
+unsigned long previousMillis = 0;
+const long interval = 5000; // قراءة كل 5 ثوانٍ
+
+void initSPIFFS() {
+  if (!SPIFFS.begin(true)) {
+    Serial.println(F("فشل في تهيئة الـ SPIFFS!"));
+    return;
+  }
+  if (!SPIFFS.exists("/sensor_log.csv")) {
+    File file = SPIFFS.open("/sensor_log.csv", FILE_WRITE);
+    if (file) {
+      file.println("Time_ms,Temperature_C,Humidity_Percent");
+      file.close();
+    }
+  }
+}
+
+void appendToCSV(float temp, float hum) {
+  File file = SPIFFS.open("/sensor_log.csv", FILE_APPEND);
+  if (file) {
+    file.print(millis()); file.print(",");
+    file.print(temp); file.print(",");
+    file.println(hum);
+    file.close();
+  }
+}
+
+// صفحة الويب لهاتفك
+const char MAIN_page[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>مراقبة البيئة - ESP32-S3</title>
+    <style>
+        body { font-family: Tahoma, sans-serif; background: #0f172a; color: #f8fafc; text-align: center; padding: 20px; }
+        .card { background: #1e293b; border-radius: 12px; padding: 20px; margin: 15px auto; max-width: 350px; border: 1px solid #334155; }
+        .value { font-size: 2.5rem; font-weight: bold; color: #4ade80; }
+        .btn { display: inline-block; background: #0284c7; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: bold; margin-top: 15px; }
+    </style>
+    <script>
+        setInterval(function() {
+            fetch('/data').then(res => res.json()).then(data => {
+                document.getElementById('temp').innerText = data.temperature;
+                document.getElementById('hum').innerText = data.humidity;
+            });
+        }, 3000);
+    </script>
+</head>
+<body>
+    <h2>🌡️ نظام المراقبة الذكي</h2>
+    <div class="card">
+        <h3>الحرارة</h3>
+        <div class="value"><span id="temp">--</span> °C</div>
+    </div>
+    <div class="card">
+        <h3>الرطوبة</h3>
+        <div class="value"><span id="hum">--</span> %</div>
+    </div>
+    <a href="/download-csv" class="btn">📥 تحميل ملف CSV</a>
+</body>
+</html>
+)rawliteral";
+
+void handleRoot() { server.send(200, "text/html", MAIN_page); }
+void handleData() {
+  String json = "{\"temperature\":" + String(currentTemp, 1) + ",\"humidity\":" + String(currentHumidity, 1) + "}";
+  server.send(200, "application/json", json);
+}
+void handleDownloadCSV() {
+  File file = SPIFFS.open("/sensor_log.csv", FILE_READ);
+  if (file) { server.streamFile(file, "text/csv"); file.close(); }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+
+  // إعداد اتصالات الـ I2C للشاشة وتفعيلها
+  Wire.begin(I2C_SDA, I2C_SCL);
+  lcd.init();                      
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print("System Starting");
+
+  dht.begin();
+  initSPIFFS();
+
+  WiFi.softAP(ssid, password);
+  server.on("/", handleRoot);
+  server.on("/data", handleData);
+  server.on("/download-csv", handleDownloadCSV);
+  server.begin();
+
+  lcd.clear();
+  lcd.print("WiFi Ready!");
+  delay(2000);
+}
+
+void loop() {
+  server.handleClient();
+
+  unsigned long currentMillis = millis();
+  if (currentMillis - previousMillis >= interval) {
+    previousMillis = currentMillis;
+
+    float h = dht.readHumidity();
+    float t = dht.readTemperature();
+
+    if (!isnan(h) && !isnan(t)) {
+      currentHumidity = h;
+      currentTemp = t;
+
+      appendToCSV(t, h);
+
+      // تحديث شاشة الـ LCD محلياً
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Temp: "); lcd.print(t); lcd.print(" C");
+      lcd.setCursor(0, 1);
+      lcd.print("Hum : "); lcd.print(h); lcd.print(" %");
+
+      // شرط التنبيه للبازر
+      if (t >= TEMP_THRESHOLD) {
+        digitalWrite(BUZZER_PIN, HIGH);
+      } else {
+        digitalWrite(BUZZER_PIN, LOW);
+      }
+    }
+  }
+}
